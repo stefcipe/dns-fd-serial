@@ -1,0 +1,60 @@
+IF savedfield#NULL THEN READ FROM savedfield
+IF savedfield#NULL AND READ BY NAME FROM savedfield it,headx,heady THEN
+  READ FROM savedfield
+  POINTER TO STORED STRUCTURE[CHAR header(POSITION(savedfield)); REAL z(0..2*nz)
+      ARRAY(1..nx,1..ny,0..nz) OF VARS v] stored=savedfield
+  zd=stored.z
+  var(LO+1..HI-1,LO+1..HI-1)=stored.v(var.LO1+1..var.HI1-1,var.LO2+1..var.HI2-1)
+ELSE
+  IF WALLS=2 THEN
+    DO zd(iz)=scale(iz/nz-1)/scale(1)+1 FOR iz=0 TO 2*nz
+    DO var(ix,iy,iz).u=8/7*zz(iz)^(1/7)*(1+0.02*COS(5*PI*zz(iz)))-Uconv; var(ix,iy,nz-iz).u=var(ix,iy,iz).u FOR ALL ix,iy AND iz=0 TO nz DIV 2
+  ELSE
+    DO zd(iz)=1-scale[1-iz/(2*nz-1)]/scale(1) FOR iz=0 TO 2*nz
+    DO var(ix,iy,iz).u=8/7*zz(iz)^(1/7)*(1+0.02*COS(5*PI*zz(iz)))-Uconv FOR ALL ix,iy AND iz=0 TO nz
+  END IF
+END IF
+IF savedfield#NULL THEN CLOSE savedfield
+old(*)=var(*)
+
+SUBROUTINE savefield(POINTER TO CSTRING name)
+  ARRAY(1..ny,0..nz) OF VARS buf
+  savedfield=OPEN(""name".partial")
+  WRITE TO savedfield "! "myname
+  WRITE BY NAME TO savedfield nx,ny,nz,Lx:1.15,Ly:1.15,nu:1.15,deltat:1.15
+  WRITE BY NAME TO savedfield it,headx:1.15,heady:1.15
+  WRITE BY NAME TO savedfield
+  WRITE BINARY TO savedfield zd
+  LOOP FOR ix=1 TO nx
+    WRITE BINARY TO savedfield var(ix,1..ny)
+  REPEAT
+  CLOSE savedfield
+  rename(""name".partial", name)
+END savefield
+
+SUBROUTINE output
+  STRUCTURED ARRAY[um,vm,wm,u2,uw,v2,w2] OF REAL stats(0..nz)=0
+  pbc(var(*,*,**))
+  IF it MOD 20 = 0 THEN
+    DO WITH var
+      stats.um(iz)=~+u(ix,iy,iz)
+      stats.vm(iz)=~+v(ix,iy,iz)
+      stats.wm(iz)=~+[w(ix,iy,iz)+w(ix,iy,iz-1)]/2
+      stats.u2(iz)=~+[u(ix,iy,iz)+u(ix-1,iy,iz)]^2/4
+      stats.uw(iz)=~+[u(ix,iy,iz)+u(ix-1,iy,iz)]*[w(ix,iy,iz)+w(ix,iy,iz-1)]/4
+      stats.v2(iz)=~+[v(ix,iy,iz)+v(ix,iy-1,iz)]^2/4
+      stats.w2(iz)=~+[w(ix,iy,iz)+w(ix,iy,iz-1)]^2/4
+    FOR ix=LO+1 TO HI-1 AND iy=LO+1 TO HI-1 AND iz=1 TO nz
+  END IF
+fr = (SUM var(ix,iy,1).u FOR ALL ix,iy)/nx/ny
+  WRITE it*deltat:1.15, fr, headx:1.15, heady:1.15
+  IF it MOD 1000 = 0 THEN
+    WRITE "# zz	u	v	w	u2	uw	v2	w2"
+    DO
+      WRITE zz(iz):1.15,stats(iz,*)/nx/ny:1.15
+    FOR iz=0 TO nz
+    WRITE \n
+  END IF
+  FLUSH stdout
+
+END output

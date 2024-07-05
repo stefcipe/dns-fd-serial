@@ -1,0 +1,125 @@
+#define lapl(f) [f(1,0,0)+f(-1,0,0)]*d2x+[f(0,1,0)+f(0,-1,0)]*d2y+f(0,0,1)*d2zp+f(0,0,-1)*d2zm-f(0,0,0)*d2z0
+#define laplp(f) [f(1,0,0)+f(-1,0,0)]*d2x+[f(0,1,0)+f(0,-1,0)]*d2y+f(0,0,1)*d2zpp+f(0,0,-1)*d2zpm-f(0,0,0)*d2zp0
+
+REAL d1x=1/deltax,d1y=1/deltay,d2x=1/deltax/deltax,d2y=1/deltay/deltay
+STRUCTURE(REAL d2zp,d2zm,d2z0,d1z,d1zp,d2zpp,d2zpm,d2zp0) zc(1..nz-1)
+DO WITH zc(iz)
+  d1z=1/[zd(2*iz+1)-zd(2*iz-1)]
+  d1zm=1/[zz(iz)-zz(iz-1)]
+  d2zm=d1z*d1zm
+  d1zp=1/[zz(iz+1)-zz(iz)]
+  d2zp=d1z*d1zp
+  d2z0=d2zm+d2zp+2*d2x+2*d2y
+  IF iz<nz-1 THEN
+WRITE BY NAME d1z, d1zp
+    d2zpp=1/[zd(2*iz+3)-zd(2*iz+1)]*d1zp
+    d2zpm=d1z*d1zp
+WRITE BY NAME d2zpm, d2zpp, d2x, d2y
+    d2zp0=d2zpm+d2zpp+2*d2x+2*d2y
+  END IF
+FOR iz=1 TO nz-1
+
+SUBROUTINE AdamsB(REAL val^,oldrsd^,rsd)
+  val=val+deltat*[1.5*rsd-0.5*oldrsd]
+  oldrsd=rsd
+END AdamsB
+
+SUBROUTINE rai1(REAL val^,oldrsd^,rsd)
+  val=val+deltat*64/120*rsd
+  oldrsd=rsd
+END rai1
+
+SUBROUTINE rai2(REAL val^,oldrsd^,rsd)
+  val=val+deltat*(50/120*rsd-34/120*oldrsd)
+  oldrsd=rsd
+END rai2
+
+SUBROUTINE rai3(REAL val^,oldrsd^,rsd)
+  val=val+deltat*(90/120*rsd-50/120*oldrsd)
+END rai3
+
+SUBROUTINE linestep[SUBROUTINE(REAL val^,oldrsd^,rsd) timescheme; INTEGER ix,iy; REAL dts; POINTER TO ARRAY(*) OF VARS new]
+  LOOP FOR iz=1 TO nz-1
+    new(iz,1..3)=var(ix,iy,iz,1..3)
+    WITH var(ix+*,iy+*,iz+*),zc(iz)
+    REAL rsdu=lapl(u)*nu-({[u(1,0,0)+u(0,0,0)]^2-[u(-1,0,0)+u(0,0,0)]^2}*d1x+
+         {[u(0,1,0)+u(0,0,0)]*[v(1,0,0)+v(0,0,0)]-[u(0,-1,0)+u(0,0,0)]*[v(1,-1,0)+v(0,-1,0)]}*d1y+
+	 {[u(0,0,1)+u(0,0,0)]*[w(1,0,0)+w(0,0,0)]-[u(0,0,-1)+u(0,0,0)]*[w(1,0,-1)+w(0,0,-1)]}*d1z)/4
+    timescheme(new(iz).u,old(ix,iy,iz).u,rsdu)
+    new(iz).u=~+(headx-[p(1,0,0)-p(0,0,0)]*d1x)*dts
+    REAL rsdv=lapl(v)*nu-({[v(0,1,0)+v(0,0,0)]^2-[v(0,-1,0)+v(0,0,0)]^2}*d1y+
+         {[v(1,0,0)+v(0,0,0)]*[u(0,1,0)+u(0,0,0)]-[v(-1,0,0)+v(0,0,0)]*[u(-1,1,0)+u(-1,0,0)]}*d1x+
+	 {[v(0,0,1)+v(0,0,0)]*[w(0,1,0)+w(0,0,0)]-[v(0,0,-1)+v(0,0,0)]*[w(0,1,-1)+w(0,0,-1)]}*d1z)/4
+    timescheme(new(iz).v,old(ix,iy,iz).v,rsdv)
+    new(iz).v=~+(heady-[p(0,1,0)-p(0,0,0)]*d1y)*dts
+    IF iz<nz-1 THEN
+      REAL rsdw=laplp(w)*nu-({[w(0,0,1)+w(0,0,0)]^2-[w(0,0,-1)+w(0,0,0)]^2}*d1zp+
+	   {[w(1,0,0)+w(0,0,0)]*[u(0,0,1)+u(0,0,0)]-[w(-1,0,0)+w(0,0,0)]*[u(-1,0,1)+u(-1,0,0)]}*d1x+
+	   {[w(0,1,0)+w(0,0,0)]*[v(0,0,1)+v(0,0,0)]-[w(0,-1,0)+w(0,0,0)]*[v(0,-1,1)+v(0,-1,0)]}*d1y)/4
+      timescheme(new(iz).w,old(ix,iy,iz).w,rsdw)
+      new(iz).w=~-[p(0,0,1)-p(0,0,0)]*d1zp*dts
+    END IF
+  REPEAT
+END linestep
+
+REAL M(1..nz-1,-1..1)
+LOOP FOR iz=1 TO nz-1
+  M(iz,-1)=zc(iz).d2zm
+  M(iz,1)=zc(iz).d2zp
+  M(iz,0)=-zc(iz).d2z0
+REPEAT
+M(LO,0)=~+M(LO,-1)
+M(HI,0)=~+M(HI,1)
+LUdecomp M
+sor=1.5
+SUBROUTINE pressurelinestep(INTEGER ix,iy; REAL dts)
+  ARRAY(1..nz-1) OF REAL phi
+  LOOP FOR iz=1 TO nz-1
+    WITH var(ix+*,iy+*,iz+*),zc(iz)
+    phi(iz)={[u(0,0,0)-u(-1,0,0)]*d1x+[v(0,0,0)-v(0,-1,0)]*d1y+[w(0,0,0)-w(0,0,-1)]*d1z}*sor
+  REPEAT
+  phi=M\~
+  LOOP FOR iz=1 TO nz-1
+    WITH var(ix+*,iy+*,iz+*)
+    u(0,0,0)=~+phi(iz)*d1x
+    u(-1,0,0)=~-phi(iz)*d1x
+    v(0,0,0)=~+phi(iz)*d1y
+    v(0,-1,0)=~-phi(iz)*d1y
+    IF iz<nz-1 THEN w(0,0,0)=~+phi(iz)*zc(iz).d1zp
+    IF iz>1 THEN w(0,0,-1)=~-phi(iz)*zc(iz-1).d1zp
+    p(0,0,0)=~+phi(iz)/dts
+  REPEAT
+END pressurelinestep
+
+SUBROUTINE timestep[SUBROUTINE(REAL val^,oldrsd^,rsd) timescheme]
+  pbc(var(*,*,**))
+  REAL dts=0, testval=1
+  timescheme(dts,testval,testval)
+  VARS new(var.LO1+1..var.HI1-1,var.LO2+1..var.HI2-1,1..nz-1)
+  LOOP FOR ix=var.LO1+1 TO var.HI1-1 AND iy=var.LO2+1 TO var.HI2-1
+    linestep(timescheme,ix,iy,dts,new(ix,iy))
+  REPEAT
+  var(LO+1..HI-1,LO+1..HI-1,1..nz-1,1..3)=new(*,*,*,1..3)
+  pbc(var(*,*,**),var(*,*,**),-1)
+  LOOP FOR 3 TIMES AND parity=0 TO 1
+    pbcp(var.u,var.v,parity)
+    LOOP FOR ix=var.LO1+1 TO var.HI1 AND iy=var.LO2+2-(var.LO2+ix+parity) MOD 2 TO var.HI2 BY 2
+      pressurelinestep(ix,iy,dts)
+    REPEAT
+  REPEAT
+#ifndef cpg
+  STRUCTURED ARRAY(x,y) OF REAL flowrate=0
+  INTEGER count=0
+  LOOP FOR ix=var.LO1+1 TO var.HI1-1 AND iy=var.LO2+1 TO var.HI2-1
+    INC count
+    flowrate.x=~+({SUM [var(ix,iy,iz).u]/zc(iz).d1z FOR iz=1 TO nz-1}-flowrate.x)/count
+    flowrate.y=~+({SUM [var(ix,iy,iz).v]/zc(iz).d1z FOR iz=1 TO nz-1}-flowrate.y)/count
+  REPEAT
+  dum=(UFR-flowrate.x)/zd(2*nz)
+  dvm=(VFR-flowrate.y)/zd(2*nz)
+  DO var(ix,iy,iz).u=~+dum FOR ix=var.LO1+1 TO var.HI1-1 AND iy=var.LO2+1 TO var.HI2-1 AND iz=1 TO nz-1
+  headx=~+dum/dts
+  DO var(ix,iy,iz).v=~+dvm FOR ix=var.LO1+1 TO var.HI1-1 AND iy=var.LO2+1 TO var.HI2-1 AND iz=1 TO nz-1
+  heady=~+dvm/dts
+#endif
+END timestep

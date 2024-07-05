@@ -1,0 +1,41 @@
+USE complex
+USE rbmat
+USE rtchecks
+!#define cpg
+
+WALLS=2
+INTEGER nx=12,ny=12,nz=121,it=0
+REAL headx=1, heady=0, nu=0.0002, Lx=2*PI, Ly=1*PI, deltat=0.001, Uconv=0
+myname=basename(COMMANDLINE(0))
+FILE savedfield=OPENRO(""myname".field")
+IF savedfield#NULL THEN READ BY NAME FROM savedfield nx,ny,nz,Lx,Ly,nu,deltat
+deltax=Lx/nx; deltay=Ly/ny
+deltat=0.02
+
+UFR=WALLS*(1-Uconv)
+VFR=0
+REAL FUNCTION scale(REAL x)=x
+!a=1.4; REAL FUNCTION scale(REAL x)=SIN(a*x)
+! REAL FUNCTION scale(REAL x)=x+0.5*0.85/PI*SIN(PI*x/0.85)
+REAL zd(0..2*nz)
+zz=^zd(2*(*))
+VARS=STRUCTURED ARRAY(p,u,v,w) OF REAL
+ARRAY[0..nx+1,0..ny+1,0..nz] OF VARS var=0,old
+USE periodicbcs
+USE iofiles
+USE timestep
+
+DO var(ix,iy,0).v=0.5*SIN(2*PI*ix/nx); var(ix,iy,nz).v=0.5*SIN(2*PI*ix/nx) FOR ALL ix,iy
+
+LOOP timeloop
+  IF WALLS=1 THEN DO var(ix,iy,nz,0..2)=var(ix,iy,nz-1,0..2); var(ix,iy,nz).w=-var(ix,iy,nz-2).w FOR ALL ix,iy
+  timestep(rai1)
+  IF WALLS=1 THEN DO var(ix,iy,nz,0..2)=var(ix,iy,nz-1,0..2); var(ix,iy,nz).w=-var(ix,iy,nz-2).w FOR ALL ix,iy
+  timestep(rai2)
+  IF WALLS=1 THEN DO var(ix,iy,nz,0..2)=var(ix,iy,nz-1,0..2); var(ix,iy,nz).w=-var(ix,iy,nz-2).w FOR ALL ix,iy
+  timestep(rai3)
+  INC it
+  IF it<500 THEN DO var(ix,iy,iz).u=~+deltat*0.2*(RAND()-0.5) FOR ix=LO+1 TO HI-1 AND iy=LO+1 TO HI-1 AND iz=LO+1 TO HI-1
+  output
+  IF it MOD 200 = 0 THEN savefield(""myname".field")
+REPEAT timeloop

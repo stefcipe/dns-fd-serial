@@ -1,0 +1,16 @@
+SUBROUTINE pbc(ARRAY(*,*,*) OF REAL f^)
+  f(LO)=f(HI-1); f(*,LO)=f(*,HI-1)
+  f(HI)=f(LO+1); f(*,HI)=f(*,LO+1)
+END pbc
+
+SUBROUTINE pbc(ARRAY(*,*,*) OF REAL u^, v^; INTEGER dir)
+  IF dir>=0 THEN u(LO)=u(HI-1); v(*,LO)=v(*,HI-1)
+  IF dir<=0 THEN u(HI)=u(LO+1); v(*,HI)=v(*,LO+1)
+END pbc
+
+SUBROUTINE pbcp(ARRAY(*,*,*) OF REAL u^,v^; INTEGER parity)
+  u(LO,(u.LO1+1+parity) MOD 2 +2*(*),*)=u(HI-1,(u.HI1+parity) MOD 2 +2*(*),*)
+  u(HI,(u.HI1+1+parity) MOD 2 +2*(*),*)=u(LO+1,(u.LO1+parity) MOD 2 +2*(*),*)
+  v((v.LO2+1+parity) MOD 2 +2*(*),LO,*)=v((v.HI2+parity) MOD 2 +2*(*),HI-1,*)
+  v((v.HI2+1+parity) MOD 2 +2*(*),HI,*)=v((v.LO2+parity) MOD 2 +2*(*),LO+1,*)
+END pbcp
